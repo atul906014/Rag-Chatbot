@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DocChat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-mode="general">
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>DocChat</h1>
+        <p>Chat freely, or ask your own documents.</p>
+      </div>
+
+      <section>
+        <h2>Mode</h2>
+        <div class="switch" id="modeSwitch" data-mode="general" role="group" aria-label="Chat mode">
+          <span class="thumb" aria-hidden="true"></span>
+          <button type="button" data-mode="general" aria-pressed="true">General</button>
+          <button type="button" data-mode="document" aria-pressed="false">Documents</button>
+        </div>
+        <p class="hint" id="modeHint"></p>
+      </section>
+
+      <section class="docs">
+        <h2>Documents</h2>
+        <label class="drop" id="dropzone">
+          <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,.md" hidden>
+          <strong id="dropTitle">Add documents</strong>
+          <span id="dropSub">Drop files or click to browse. PDF, DOCX, TXT, MD.</span>
+        </label>
+        <ul class="files" id="fileList"></ul>
+        <button type="button" class="remove" id="clearBtn" hidden>Remove all documents</button>
+      </section>
+
+      <p class="privacy">Your files and their embeddings are deleted when you close this tab.</p>
+    </aside>
+
+    <main class="chat">
+      <header class="chat-head">
+        <h2 id="chatTitle">General chat</h2>
+      </header>
+      <div class="messages" id="messages" aria-live="polite"></div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" aria-label="Message"></textarea>
+        <button type="submit" id="sendBtn">Send</button>
+      </form>
+    </main>
+  </div>
+  <script src="/static/script.js"></script>
+</body>
+</html>
