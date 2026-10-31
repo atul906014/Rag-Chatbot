@@ -2,10 +2,8 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 GROQ_MAIN_MODEL = os.getenv("GROQ_MAIN_MODEL", "llama-3.3-70b-versatile")
-
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 800))

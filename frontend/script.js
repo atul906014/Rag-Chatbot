@@ -26,14 +26,14 @@ const COPY = {
     title: "General chat",
     hint: "Ask anything. Answers come from the model, not from your files.",
     placeholder: "Message the assistant",
-    empty: ["Ask me anything", "This mode doesn’t use your documents. Switch to Documents to ask about your files."],
+    empty: ["Ask me |anything", "This mode doesn’t use your documents. Switch to Documents to ask about your files."],
   },
   document: {
     title: "Document chat",
     hint: "Answers come only from your uploaded files, with the sources listed.",
     placeholder: "Ask about your documents",
-    empty: ["Ask about your documents", "Questions unrelated to your files will be declined."],
-    emptyNoFiles: ["Add a document to begin", "Upload a PDF, DOCX, TXT or MD file on the left, then ask questions about it."],
+    empty: ["Ask about your |documents", "Questions unrelated to your files will be declined."],
+    emptyNoFiles: ["Add a |document| to begin", "Upload a PDF, DOCX, TXT or MD file on the left, then ask questions about it."],
   },
 };
 
@@ -66,14 +66,48 @@ function buildMessage(m) {
   return div;
 }
 
+const ROBOT = `<svg viewBox="0 0 260 190" class="hero-art" aria-hidden="true">
+<ellipse cx="130" cy="172" rx="95" ry="12" fill="var(--accent-soft)"/>
+<rect x="52" y="62" width="40" height="40" rx="11" fill="#8b5cf6" transform="rotate(-10 72 82)"/>
+<text x="72" y="91" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">?</text>
+<rect x="172" y="30" width="38" height="38" rx="10" fill="#22c07a" transform="rotate(8 191 49)"/>
+<rect x="182" y="40" width="18" height="18" rx="3" fill="#fff" opacity=".9"/>
+<rect x="196" y="86" width="34" height="34" rx="10" fill="#fbbf24" transform="rotate(12 213 103)"/>
+<line x1="130" y1="22" x2="130" y2="40" stroke="var(--accent)" stroke-width="4"/>
+<circle cx="130" cy="18" r="6" fill="var(--accent)"/>
+<rect x="88" y="38" width="84" height="66" rx="30" fill="#fff" stroke="var(--line)" stroke-width="3"/>
+<rect x="98" y="50" width="64" height="42" rx="20" fill="#14213d"/>
+<path d="M112 72q6-8 12 0M136 72q6-8 12 0M120 82q10 8 20 0" stroke="#7dd3fc" stroke-width="4" fill="none" stroke-linecap="round"/>
+<rect x="100" y="106" width="60" height="50" rx="24" fill="#fff" stroke="var(--line)" stroke-width="3"/>
+<rect x="150" y="110" width="34" height="44" rx="6" fill="var(--accent)" transform="rotate(8 167 132)"/>
+<path d="M156 124h20M156 134h20M156 144h12" stroke="#fff" stroke-width="3" stroke-linecap="round" transform="rotate(8 167 132)"/>
+</svg>`;
+
+const CHIPS = [["✨", "Tell me about AI"], ["💡", "Explain LangGraph"], ["📊", "Get coding help"], ["📖", "Learn something new"]];
+
 function emptyState() {
   const c = COPY[state.mode];
   const [title, body] = state.mode === "document" && !state.files.length ? c.emptyNoFiles : c.empty;
+  const [pre, hl = "", post = ""] = title.split("|");
   const div = document.createElement("div");
   div.className = "empty";
-  div.innerHTML = "<h3></h3><p></p>";
-  div.querySelector("h3").textContent = title;
+  div.innerHTML = ROBOT + "<h3></h3><p></p>";
+  const em = document.createElement("em");
+  em.textContent = hl;
+  div.querySelector("h3").append(pre, em, post);
   div.querySelector("p").textContent = body;
+  if (state.mode === "general") {
+    const row = document.createElement("div");
+    row.className = "chips";
+    CHIPS.forEach(([icon, label]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = `${icon} ${label}`;
+      b.addEventListener("click", () => { if (!state.busy) send(label); });
+      row.append(b);
+    });
+    div.append(row);
+  }
   return div;
 }
 
@@ -282,6 +316,17 @@ setInterval(() => {
 }, 60000);
 
 window.addEventListener("pagehide", () => navigator.sendBeacon(`${API_URL}/session/end`, sid));
+
+// Theme, sidebar and attach controls
+const root = document.documentElement;
+root.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+$("#themeBtn").addEventListener("click", () => {
+  root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+});
+document.querySelectorAll(".js-toggle").forEach((b) =>
+  b.addEventListener("click", () => $("#app").classList.toggle("collapsed")));
+$("#addBtn").addEventListener("click", () => el.fileInput.click());
+$("#attachBtn").addEventListener("click", () => el.fileInput.click());
 
 updateUI();
 render();
