@@ -1,5 +1,4 @@
 from typing import Annotated, Literal, TypedDict
-from httpcore2 import ConnectionPool
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import InMemorySaver, MemorySaver, logger
@@ -18,7 +17,6 @@ from config import (
     DATABASE_URL,
 )
 from ingest import stores
-from rerank import rerank
 
 # Models
 llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0.4, max_retries=3)
@@ -100,7 +98,7 @@ def get_checkpointer() -> InMemorySaver | PostgresSaver:
             pool = ConnectionPool(
                 conninfo=database_url,
                 min_size=1,
-                max_size=5,
+                max_size=2,
                 max_idle=240,                      # close idle conns before Neon does
                 check=ConnectionPool.check_connection,  # test conn before handing it out
                 timeout=15,                        # wait for Neon to wake up
@@ -155,6 +153,7 @@ def rewrite_query(state: State):
 
 def retrieve_and_rerank(state: State):
     """Retrieve candidates with hybrid search, then rerank with the cross-encoder."""
+    from rerank import rerank
     store = stores.get(state["session_id"])
     if store is None:
         return {"context_docs": [], "top_score": float("-inf")}
