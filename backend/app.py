@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -39,6 +40,9 @@ def _run_graph(session_id: str, mode: str, message: str) -> str:
         config={"configurable": {"thread_id": f"{session_id}:{mode}"}},
     )
     return result["answer"]
+
+
+
 
 
 def _end_session(session_id: str):
@@ -93,12 +97,19 @@ class ChatResponse(BaseModel):
 class PingRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
 
+state = {"ready": False}
 
 @app.get("/")
 def index():
     return FileResponse(FRONTEND_DIR / "index.html")
 
-    
+def warmup():
+    # heavy stuff here: load models, build index, connect clients
+    state["ready"] = True
+
+@app.on_event("startup")
+def start():
+    threading.Thread(target=warmup, daemon=True).start()
 
 @app.get("/health")
 def health():

@@ -104,3 +104,6 @@ def clear_session(session_id: str):
         _vector_stores.pop(session_id, None)
         _documents.pop(session_id, None)
     last_seen.pop(session_id, None)
+
+
+    
