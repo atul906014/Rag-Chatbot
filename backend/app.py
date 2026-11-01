@@ -97,19 +97,10 @@ class ChatResponse(BaseModel):
 class PingRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
 
-state = {"ready": False}
-
 @app.get("/")
 def index():
     return FileResponse(FRONTEND_DIR / "index.html")
 
-def warmup():
-    # heavy stuff here: load models, build index, connect clients
-    state["ready"] = True
-
-@app.on_event("startup")
-def start():
-    threading.Thread(target=warmup, daemon=True).start()
 
 @app.get("/health")
 def health():
@@ -217,3 +208,14 @@ async def end_session(request: Request):
 
     _end_session(session_id)
     return {"cleared": True}
+
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=True
+    )
