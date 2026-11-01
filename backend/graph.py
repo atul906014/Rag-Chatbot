@@ -82,13 +82,13 @@ def rewrite_query(state: State):
 
 
 def retrieve_and_rerank(state: State):
-    """Retrieve wide with the vector store, then rerank with the cross-encoder."""
+    """Retrieve candidates with hybrid search, then rerank with the cross-encoder."""
     store = stores.get(state["session_id"])
     if store is None:
         return {"context_docs": [], "top_score": float("-inf")}
 
     query = state["rewritten_query"]
-    candidates = store.similarity_search(query, k=RETRIEVE_K)
+    candidates = store.invoke(query)[:RETRIEVE_K]
     if not candidates:
         return {"context_docs": [], "top_score": float("-inf")}
 

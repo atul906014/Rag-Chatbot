@@ -1,7 +1,9 @@
 # --- LLM orchestration ---
 langchain>=0.3
 langchain-core>=0.3
+langchain-classic
 langchain-community>=0.3
+rank_bm25>=0.2.2
 langchain-groq>=0.2
 langchain-huggingface>=0.1
 langchain-text-splitters>=0.3

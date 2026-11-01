@@ -3,9 +3,12 @@ import threading
 import time
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
 from langchain_community.vectorstores import FAISS
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers.ensemble import EnsembleRetriever
+from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from config import CHUNK_OVERLAP, CHUNK_SIZE, EMBEDDING_MODEL
+from config import CHUNK_OVERLAP, CHUNK_SIZE, EMBEDDING_MODEL, RETRIEVE_K
 
 # Models (loaded once at import time, shared by all sessions)
 
@@ -20,7 +23,9 @@ splitter = RecursiveCharacterTextSplitter(
 )
 
 # Per-session state (in memory only; nothing is persisted to disk)
-stores: dict[str, FAISS] = {}     # session_id -> FAISS index (holds the embeddings)
+stores: dict[str, EnsembleRetriever] = {}  # session_id -> hybrid retriever
+_vector_stores: dict[str, FAISS] = {}
+_documents: dict[str, list[Document]] = {}
 last_seen: dict[str, float] = {}  # session_id -> last activity timestamp
 _lock = threading.Lock()
 
@@ -68,14 +73,29 @@ def ingest(session_id: str, path: str, filename: str) -> int:
     for c in chunks:
         c.metadata["source"] = filename
 
-    # Embed outside the lock (slow), then merge into the session's index
+    # Embed outside the lock (slow), then update the session's retrievers.
     new_store = FAISS.from_documents(chunks, embeddings)
-
     with _lock:
-        if session_id in stores:
-            stores[session_id].merge_from(new_store)
+        all_docs = [*_documents.get(session_id, []), *chunks]
+        sparse_retriever = BM25Retriever.from_documents(all_docs)
+        sparse_retriever.k = RETRIEVE_K
+
+        vector_store = _vector_stores.get(session_id)
+        if vector_store is not None:
+            vector_store.merge_from(new_store)
         else:
-            stores[session_id] = new_store
+            vector_store = new_store
+            _vector_stores[session_id] = vector_store
+
+        dense_retriever = vector_store.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": RETRIEVE_K},
+        )
+        stores[session_id] = EnsembleRetriever(
+            retrievers=[dense_retriever, sparse_retriever],
+            weights=[0.7, 0.3],
+        )
+        _documents[session_id] = all_docs
 
     touch(session_id)
     return len(chunks)
@@ -85,4 +105,6 @@ def clear_session(session_id: str):
     """Drop the session's index (and its embeddings) and stop tracking it."""
     with _lock:
         stores.pop(session_id, None)
+        _vector_stores.pop(session_id, None)
+        _documents.pop(session_id, None)
     last_seen.pop(session_id, None)
