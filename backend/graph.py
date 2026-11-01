@@ -1,8 +1,13 @@
 from typing import Annotated, Literal, TypedDict
+from httpcore2 import ConnectionPool
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.memory import InMemorySaver, MemorySaver, logger
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from langgraph.graph import END, START, StateGraph
+from psycopg_pool import ConnectionPool
+from psycopg.rows import dict_row
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.message import add_messages
 from config import (
     GROQ_API_KEY,
@@ -10,12 +15,13 @@ from config import (
     REJECT_THRESHOLD,
     RERANK_TOP_K,
     RETRIEVE_K,
+    DATABASE_URL,
 )
 from ingest import stores
 from rerank import rerank
 
 # Models
-llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0, max_retries=3)
+llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0.4, max_retries=3)
 
 HISTORY_WINDOW = 12  # number of recent messages sent to the LLM
 
@@ -59,6 +65,72 @@ def _format_history(messages: list) -> str:
         role = "User" if m.type == "human" else "Assistant"
         lines.append(f"{role}: {m.content}")
     return "\n".join(lines)
+
+
+
+
+def get_database_url() -> str | None:
+    database_url = DATABASE_URL
+
+    if not database_url:
+        return None
+
+    parsed_url = urlsplit(database_url)
+    query_params = parse_qs(parsed_url.query, keep_blank_values=True)
+
+    if "sslmode" not in query_params:
+        loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+        sslmode = "disable" if parsed_url.hostname in loopback_hosts else "require"
+        query_params["sslmode"] = [sslmode]
+        database_url = urlunsplit(
+            parsed_url._replace(query=urlencode(query_params, doseq=True))
+        )
+
+    return database_url
+
+
+
+def get_checkpointer() -> InMemorySaver | PostgresSaver:
+    """Create a checkpointer for the graph, using the database if available."""
+    database_url = get_database_url()
+    checkpointer= None
+    if database_url:
+      
+        try:
+            pool = ConnectionPool(
+                conninfo=database_url,
+                min_size=1,
+                max_size=5,
+                max_idle=240,                      # close idle conns before Neon does
+                check=ConnectionPool.check_connection,  # test conn before handing it out
+                timeout=15,                        # wait for Neon to wake up
+                kwargs={
+                    "autocommit": True,            # required by PostgresSaver
+                    "row_factory": dict_row,       # required by PostgresSaver
+                    "prepare_threshold": 0,        # needed behind Neon's pooler (PgBouncer)
+                    "connect_timeout": 15,
+                },
+                open=False,
+            )
+            pool.open(wait=True, timeout=20)
+            checkpointer = PostgresSaver(pool)
+            checkpointer.setup()
+        except Exception as exc:
+            logger.warning(
+                "PostgreSQL is unavailable (%s); using in-memory checkpoints. "
+                "Conversation state will not survive an application restart.",
+                type(exc).__name__,
+            )
+            checkpointer = None
+
+    if checkpointer is None:
+        checkpointer = InMemorySaver()
+
+
+    return checkpointer    
+
+
+
 
 
 def rewrite_query(state: State):
@@ -141,7 +213,7 @@ builder.add_edge("general_chat", END)
 builder.add_edge("generate", END)
 builder.add_edge("reject", END)
 
-checkpointer = MemorySaver()
+checkpointer = get_checkpointer()
 graph = builder.compile(checkpointer=checkpointer)
 
 # Cleanup
@@ -154,3 +226,6 @@ def clear_thread(thread_id: str):
         checkpointer.storage.pop(thread_id, None)
         for key in [k for k in checkpointer.writes if k[0] == thread_id]:
             checkpointer.writes.pop(key, None)
+
+
+

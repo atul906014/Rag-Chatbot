@@ -26,3 +26,8 @@ python-multipart>=0.0.9
 
 # --- Config ---
 python-dotenv>=1.0
+
+#checkoint
+psycopg[binary]==3.3.4
+psycopg_pool==3.3.1
+langgraph-checkpoint-postgres==3.1.0

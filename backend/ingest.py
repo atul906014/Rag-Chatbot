@@ -21,7 +21,6 @@ splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
     chunk_overlap=CHUNK_OVERLAP,
 )
-
 # Per-session state (in memory only; nothing is persisted to disk)
 stores: dict[str, EnsembleRetriever] = {}  # session_id -> hybrid retriever
 _vector_stores: dict[str, FAISS] = {}
@@ -45,10 +44,7 @@ def load_file(path: str):
         return TextLoader(path, encoding="utf-8", autodetect_encoding=True).load()
     raise ValueError(f"Unsupported file type: {ext}")
 
-
-# --------------------------------------------------------------------------
 # Ingestion
-# --------------------------------------------------------------------------
 def ingest(session_id: str, path: str, filename: str) -> int:
     """
     Load a file, chunk it, embed it, and add it to the session's index.
