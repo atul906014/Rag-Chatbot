@@ -75,11 +75,38 @@ button { cursor: pointer; }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 860px; margin: 0 auto; padding: 12px 28px 24px; }
 .msg { max-width: 78%; line-height: 1.6; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), var(--accent2)); padding: 11px 16px; border-radius: 18px 18px 4px 18px; }
-.msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 12px 16px; border-radius: 4px 18px 18px 18px; box-shadow: var(--shadow); }
+.msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 16px 18px; border-radius: 4px 18px 18px 18px; box-shadow: var(--shadow); white-space: normal; }
+.answer-content { color: var(--ink); line-height: 1.75; overflow-wrap: anywhere; }
+.answer-content p { margin: 0 0 12px; }
+.answer-content p:last-child { margin-bottom: 0; }
+.answer-content ul, .answer-content ol { display: grid; gap: 7px; margin: 8px 0 14px; padding-left: 22px; }
+.answer-content li { padding-left: 3px; }
+.answer-content li::marker { color: var(--accent); font-weight: 700; }
+.answer-content strong { color: var(--accent); font-weight: 700; }
 .msg.notice { align-self: center; max-width: 90%; text-align: center; white-space: normal; color: var(--muted); font-size: 13px; }
 .msg.notice.error { color: var(--danger); }
-.sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.sources span { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); }
+.citation-panel {
+  display: grid; gap: 10px; margin-top: 18px; padding: 13px 15px;
+  background: var(--surface); border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent-soft) 38%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: 14px;
+}
+.citation-heading { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 13px; }
+.citation-icon {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px;
+  background: var(--accent-soft); font-size: 15px; font-weight: 700;
+}
+.citation-group { display: grid; gap: 5px; }
+.citation-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.citation-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.citation-chip {
+  max-width: 100%; padding: 4px 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--ink); font-size: 12px; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.citation-pages { color: var(--accent); font-weight: 600; }
+.citation-sections { background: transparent; }
 .typing { align-self: flex-start; display: flex; gap: 5px; padding: 14px 16px; }
 .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
 .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }

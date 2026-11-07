@@ -38,30 +38,133 @@ const COPY = {
 };
 
 /* ---------- Rendering ---------- */
+function appendFormattedText(parent, text) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  parts.forEach((part) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      const strong = document.createElement("strong");
+      strong.textContent = part.slice(2, -2);
+      parent.append(strong);
+    } else {
+      parent.append(document.createTextNode(part));
+    }
+  });
+}
+
+function renderAnswer(text) {
+  const content = document.createElement("div");
+  content.className = "answer-content";
+
+  let paragraph = [];
+  let list = null;
+  let listType = "";
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const p = document.createElement("p");
+    appendFormattedText(p, paragraph.join(" "));
+    content.append(p);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list) return;
+    content.append(list);
+    list = null;
+    listType = "";
+  };
+
+  text.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    const bullet = trimmed.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+    } else if (bullet) {
+      flushParagraph();
+      const type = /^\d+[.)]/.test(trimmed) ? "ol" : "ul";
+      if (listType !== type) {
+        flushList();
+        list = document.createElement(type);
+        listType = type;
+      }
+      const item = document.createElement("li");
+      appendFormattedText(item, bullet[1]);
+      list.append(item);
+    } else {
+      flushList();
+      paragraph.push(trimmed);
+    }
+  });
+
+  flushParagraph();
+  flushList();
+  return content;
+}
+
 function buildMessage(m) {
   const div = document.createElement("div");
   div.className = `msg ${m.role}` + (m.error ? " error" : "");
   let text = m.text;
-  let sources = null;
+  let citationGroups = [];
 
   if (m.role === "assistant") {
-    const match = text.match(/\n\nSources: (.+)$/s);
-    if (match) {
-      text = text.slice(0, match.index);
-      sources = match[1].split(",").map((s) => s.trim()).filter(Boolean);
+    const marker = "\n\n[Citations]\n";
+    const citationIndex = text.lastIndexOf(marker);
+    if (citationIndex !== -1) {
+      const citationText = text.slice(citationIndex + marker.length);
+      text = text.slice(0, citationIndex);
+      citationGroups = citationText.split("\n").flatMap((line) => {
+        const separator = line.indexOf(":");
+        if (separator === -1) return [];
+        const label = line.slice(0, separator).trim();
+        const values = line.slice(separator + 1).split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        return values.length ? [{ label, values }] : [];
+      });
     }
   }
-  div.append(document.createTextNode(text));
+  if (m.role === "assistant") {
+    div.append(renderAnswer(text));
+  } else {
+    div.append(document.createTextNode(text));
+  }
 
-  if (sources) {
-    const row = document.createElement("div");
-    row.className = "sources";
-    sources.forEach((s) => {
-      const chip = document.createElement("span");
-      chip.textContent = s;
-      row.append(chip);
+  if (citationGroups.length) {
+    const panel = document.createElement("section");
+    panel.className = "citation-panel";
+    panel.setAttribute("aria-label", "Answer sources");
+
+    const heading = document.createElement("div");
+    heading.className = "citation-heading";
+    const icon = document.createElement("span");
+    icon.className = "citation-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "↗";
+    const title = document.createElement("strong");
+    title.textContent = "Sources";
+    heading.append(icon, title);
+    panel.append(heading);
+
+    citationGroups.forEach(({ label, values }) => {
+      const group = document.createElement("div");
+      group.className = "citation-group";
+      const groupLabel = document.createElement("span");
+      groupLabel.className = "citation-label";
+      groupLabel.textContent = label;
+      const items = document.createElement("div");
+      items.className = "citation-items";
+      values.forEach((value) => {
+        const item = document.createElement("span");
+        item.className = `citation-chip citation-${label.toLowerCase()}`;
+        item.textContent = value;
+        items.append(item);
+      });
+      group.append(groupLabel, items);
+      panel.append(group);
     });
-    div.append(row);
+    div.append(panel);
   }
   return div;
 }
