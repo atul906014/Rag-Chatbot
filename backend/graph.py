@@ -17,6 +17,7 @@ from config import (
     DATABASE_URL,
 )
 from ingest import stores
+from citation import CitationExtractor
 
 # Models
 llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0.4, max_retries=3)
@@ -172,23 +173,50 @@ def retrieve_and_rerank(state: State):
 
 def generate(state: State):
     docs = state["context_docs"]
-    context = "\n\n".join(f"[{d.metadata.get('source', 'unknown')}]\n{d.page_content}" for d in docs)
+
+    context_blocks = []
+    for d in docs:
+        metadata = d.metadata or {}
+        citation = CitationExtractor.format_citation({
+            "paper_id": metadata.get("paper_id", ""),
+            "section": metadata.get("section_path", ""),
+            "page": metadata.get("page_num", ""),
+            "chunk_id": metadata.get("chunk_id", ""),
+            "node_type": metadata.get("node_type", ""),
+        })
+        context_blocks.append(
+            f"[{metadata.get('source', 'unknown')} | {citation}]\n{d.page_content}"
+        )
+
+    context = "\n\n".join(context_blocks)
     question = state["messages"][-1].content
     history = state["messages"][:-1][-HISTORY_WINDOW:]
 
     prompt = (
         "Answer the question using ONLY the context below. If the context does "
         "not contain the answer, say you couldn't find it in the documents. "
-        "Be concise and do not make things up.\n\n"
+        "Be concise, do not make things up, and do not add a Sources, Pages, or "
+        "Sections footer; citation details are added separately.\n\n"
         f"Context:\n{context}\n\n"
         + (f"Chat history:\n{_format_history(history)}\n\n" if history else "")
         + f"Question: {question}"
     )
     answer = llm_main.invoke(prompt).content
 
-    sources = sorted({d.metadata.get("source", "unknown") for d in docs})
+    metadata = [d.metadata or {} for d in docs]
+    sources = sorted({str(m.get("source", "unknown")) for m in metadata if m.get("source")})
+    page_nums = sorted({str(m["page_num"]) for m in metadata if m.get("page_num")})
+    section_paths = sorted({str(m["section_path"]) for m in metadata if m.get("section_path")})
+
+    citation_lines = []
     if sources:
-        answer += "\n\nSources: " + ", ".join(sources)
+        citation_lines.append("Sources: " + ", ".join(sources))
+    if page_nums:
+        citation_lines.append("Pages: " + ", ".join(page_nums))
+    if section_paths:
+        citation_lines.append("Sections: " + ", ".join(section_paths))
+    if citation_lines:
+        answer += "\n\n[Citations]\n" + "\n".join(citation_lines)
 
     return {"answer": answer, "messages": [AIMessage(answer)]}
 
@@ -225,6 +253,3 @@ def clear_thread(thread_id: str):
         checkpointer.storage.pop(thread_id, None)
         for key in [k for k in checkpointer.writes if k[0] == thread_id]:
             checkpointer.writes.pop(key, None)
-
-
-

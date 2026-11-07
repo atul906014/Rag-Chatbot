@@ -11,7 +11,6 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 120))
 RETRIEVE_K = int(os.getenv("RETRIEVE_K", 20))
 RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", 4))
 REJECT_THRESHOLD = float(os.getenv("REJECT_THRESHOLD", 0.0))
-
 SESSION_IDLE_TTL = int(os.getenv("SESSION_IDLE_TTL_SECONDS", 1800))
 DATABASE_URL = os.getenv("DATABASE_URL")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")

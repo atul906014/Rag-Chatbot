@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 import time
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
@@ -9,13 +10,14 @@ from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from config import CHUNK_OVERLAP, CHUNK_SIZE, EMBEDDING_MODEL, RETRIEVE_K
-
+from citation import CitationExtractor
 # Models (loaded once at import time, shared by all sessions)
 
 embeddings = HuggingFaceEmbeddings(
     model_name=EMBEDDING_MODEL,
     encode_kwargs={"normalize_embeddings": True},
 )
+
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
@@ -44,6 +46,24 @@ def load_file(path: str):
         return TextLoader(path, encoding="utf-8", autodetect_encoding=True).load()
     raise ValueError(f"Unsupported file type: {ext}")
 
+
+def _is_section_heading(line: str) -> bool:
+    line = re.sub(r"\s+", " ", line).strip()
+    if not line or len(line) > 80 or line.startswith(("-", "*", "•")):
+        return False
+    if line.startswith("#"):
+        return bool(line.lstrip("#").strip())
+    if ":" in line:
+        return False
+    words = line.split()
+    return (
+        len(words) <= 8
+        and any(char.isalpha() for char in line)
+        and not line.endswith((".", "!", "?", ";"))
+        and line.isupper()
+    )
+
+
 # Ingestion
 def ingest(session_id: str, path: str, filename: str) -> int:
     """
@@ -53,6 +73,7 @@ def ingest(session_id: str, path: str, filename: str) -> int:
     """
     try:
         docs = load_file(path)
+        citation = CitationExtractor.extract_first(docs)
     finally:
         try:
             os.remove(path)
@@ -67,7 +88,32 @@ def ingest(session_id: str, path: str, filename: str) -> int:
         )
 
     for c in chunks:
-        c.metadata["source"] = filename
+        metadata = c.metadata
+        metadata["source"] = filename
+        metadata["paper_id"] = metadata.get("paper_id") or citation.get("paper_id", "")
+        metadata["node_type"] = metadata.get("node_type") or citation.get("node_type", "")
+
+        if metadata.get("page_num") in (None, ""):
+            page = metadata.get("page")
+            if page not in (None, ""):
+                try:
+                    metadata["page_num"] = str(int(page) + 1)
+                except (TypeError, ValueError):
+                    metadata["page_num"] = str(page)
+        else:
+            metadata["page_num"] = str(metadata["page_num"])
+
+    section_path = ""
+    for chunk_index, c in enumerate(chunks, start=1):
+        metadata = c.metadata
+        for line in c.page_content.splitlines():
+            if _is_section_heading(line):
+                section_path = line.lstrip("#").strip()
+        metadata["section_path"] = metadata.get("section_path") or section_path
+        page_num = metadata.get("page_num") or "na"
+        metadata["chunk_id"] = metadata.get("chunk_id") or (
+            f"{os.path.splitext(filename)[0]}:p{page_num}:c{chunk_index}"
+        )
 
     # Embed outside the lock (slow), then update the session's retrievers.
     new_store = FAISS.from_documents(chunks, embeddings)

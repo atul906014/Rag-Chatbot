@@ -1,4 +1,3 @@
-
 from sentence_transformers import CrossEncoder
 from config import RERANKER_MODEL
 
