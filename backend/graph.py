@@ -18,20 +18,13 @@ from config import (
 from ingest import stores
 from citation import CitationExtractor
 from rerank import rerank
+from prompt import GENERAL_SYSTEM_PROMPT, REJECTION_MESSAGE
 # Models
 llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0.4, max_retries=3)
 
 HISTORY_WINDOW = 12  # number of recent messages sent to the LLM
 
-GENERAL_SYSTEM_PROMPT = (
-    "You are a helpful, concise assistant. Answer the user's questions clearly."
-)
 
-REJECTION_MESSAGE = (
-    "I can only answer questions about your uploaded documents, and I couldn't "
-    "find anything relevant to that question. Try rephrasing it, or switch to "
-    "General Chat."
-)
 # State
 class State(TypedDict, total=False):
     messages: Annotated[list, add_messages]

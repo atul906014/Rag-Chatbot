@@ -67,6 +67,17 @@ python -m uvicorn app:app --reload
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), and the health endpoint is [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
 
+## Run with Docker
+
+Build and run the app from the repository root:
+
+```powershell
+docker build -t docchat .
+docker run --rm -p 8000:8000 --env-file .env docchat
+```
+
+The `.env` file must define `GROQ_API_KEY`. The embedding and reranking models are downloaded on first startup and cached inside the container; deleting the container removes that cache.
+
 ## API overview
 
 | Endpoint | Method | Purpose |
