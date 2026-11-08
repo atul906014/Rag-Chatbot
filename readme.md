@@ -49,7 +49,6 @@ GROQ_API_KEY=your_groq_api_key
 | `CHUNK_OVERLAP` | `120` | Overlap between document chunks |
 | `RETRIEVE_K` | `20` | Number of hybrid retrieval candidates |
 | `RERANK_TOP_K` | `4` | Number of reranked passages used to answer |
-| `REJECT_THRESHOLD` | `0.0` | Minimum reranker score required to answer |
 | `SESSION_IDLE_TTL_SECONDS` | `1800` | Idle session expiration time |
 | `DATABASE_URL` | unset | Optional PostgreSQL URL for conversation checkpoints |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed CORS origins |

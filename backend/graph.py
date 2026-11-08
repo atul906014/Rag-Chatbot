@@ -11,14 +11,13 @@ from langgraph.graph.message import add_messages
 from config import (
     GROQ_API_KEY,
     GROQ_MAIN_MODEL,
-    REJECT_THRESHOLD,
     RERANK_TOP_K,
     RETRIEVE_K,
     DATABASE_URL,
 )
 from ingest import stores
 from citation import CitationExtractor
-
+from rerank import rerank
 # Models
 llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0.4, max_retries=3)
 
@@ -40,7 +39,6 @@ class State(TypedDict, total=False):
     session_id: str
     rewritten_query: str
     context_docs: list
-    top_score: float
     answer: str
 # Routing
 def route_by_mode(state: State) -> str:
@@ -48,8 +46,8 @@ def route_by_mode(state: State) -> str:
 
 
 def check_topic(state: State) -> str:
-    """Topic rejection: if even the best reranked chunk scores too low, refuse."""
-    return "generate" if state.get("top_score", float("-inf")) > REJECT_THRESHOLD else "reject"
+    """Generate from retrieved context; reject only when retrieval found nothing."""
+    return "generate" if state.get("context_docs") else "reject"
 
 # Nodes: general chat
 def general_chat(state: State):
@@ -142,33 +140,35 @@ def rewrite_query(state: State):
         return {"rewritten_query": question}
 
     prompt = (
-        "Rewrite the user's last question as a standalone search query for "
-        "searching a document collection. Resolve pronouns and references "
+        "Rewrite the user's last question as a  search query for document retrieval in details,"
         "using the chat history. Keep the key terms. Return ONLY the query.\n\n"
         f"Chat history:\n{_format_history(history)}\n\n"
         f"Last question: {question}\n\nStandalone query:"
     )
     rewritten = llm_main.invoke(prompt).content.strip().strip('"')
+    print (f"Rewritten query: {rewritten}")
     return {"rewritten_query": rewritten or question}
 
 
 def retrieve_and_rerank(state: State):
     """Retrieve candidates with hybrid search, then rerank with the cross-encoder."""
-    from rerank import rerank
+
     store = stores.get(state["session_id"])
     if store is None:
-        return {"context_docs": [], "top_score": float("-inf")}
+        return {"context_docs": []}
 
     query = state["rewritten_query"]
     candidates = store.invoke(query)[:RETRIEVE_K]
+    print(f"Retrieved {len(candidates)} candidates for query: {query}")
     if not candidates:
-        return {"context_docs": [], "top_score": float("-inf")}
+        return {"context_docs": []}
 
     ranked = rerank(query, candidates, top_k=RERANK_TOP_K)  # [(doc, score), ...]
-    return {
-        "context_docs": [doc for doc, _ in ranked],
-        "top_score": float(ranked[0][1]),
-    }
+    if not ranked:
+        return {"context_docs": []}
+
+    print(f"Top reranker score: {float(ranked[0][1]):.4f}")
+    return {"context_docs": [doc for doc, _ in ranked]}
 
 
 def generate(state: State):

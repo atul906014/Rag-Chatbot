@@ -75,7 +75,7 @@ button { cursor: pointer; }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 860px; margin: 0 auto; padding: 12px 28px 24px; }
 .msg { max-width: 78%; line-height: 1.6; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), var(--accent2)); padding: 11px 16px; border-radius: 18px 18px 4px 18px; }
-.msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 16px 18px; border-radius: 4px 18px 18px 18px; box-shadow: var(--shadow); white-space: normal; }
+.msg.assistant { align-self: flex-start; background: var(--surface); border: 1.5px solid color-mix(in srgb, var(--accent) 45%, var(--line)); padding: 16px 18px; border-radius: 18px; box-shadow: var(--shadow); white-space: normal; }
 .answer-content { color: var(--ink); line-height: 1.75; overflow-wrap: anywhere; }
 .answer-content p { margin: 0 0 12px; }
 .answer-content p:last-child { margin-bottom: 0; }
