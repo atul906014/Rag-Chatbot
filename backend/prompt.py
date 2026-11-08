@@ -7,3 +7,7 @@ REJECTION_MESSAGE = (
     "find anything relevant to that question. Try rephrasing it, or switch to "
     "General Chat."
 )
+
+MODERATION_REJECTION_MESSAGE = (
+    "I can't help with that request. I can try to help with a safe alternative."
+)
