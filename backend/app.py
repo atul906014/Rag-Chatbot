@@ -17,7 +17,6 @@ from graph import graph
 from ingest import clear_session, ingest, last_seen, stores, touch
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
-from rerank import initialize_reranker
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -67,16 +66,9 @@ async def _sweeper():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    initialize_reranker()
     task = asyncio.create_task(_sweeper())
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+    yield
+    task.cancel()
 
 
 app = FastAPI(title="Dual-Mode RAG Chatbot", lifespan=lifespan)

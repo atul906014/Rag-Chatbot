@@ -2,24 +2,17 @@ from sentence_transformers import CrossEncoder
 from config import RERANKER_MODEL
 
 
-reranker: CrossEncoder | None = None
-
-
-def initialize_reranker() -> None:
-    global reranker
-    if reranker is None:
-        reranker = CrossEncoder(
+reranker = CrossEncoder(
             RERANKER_MODEL,
             max_length=256,
-            device="cpu",
+            device="cpu"
         )
+
+   
 
 def rerank(query: str, docs: list, top_k: int = 4) -> list:
     if not docs:
         return []
-    if reranker is None:
-        raise RuntimeError("The reranker has not been initialized.")
-
     pairs = [
         (query, doc.page_content[:3000])
         for doc in docs
