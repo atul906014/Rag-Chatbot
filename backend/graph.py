@@ -1,5 +1,7 @@
+import sys
 from typing import Annotated, Literal, TypedDict
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+import os
+from langchain_core.messages import AIMessage
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import InMemorySaver, MemorySaver, logger
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
@@ -7,6 +9,8 @@ from langgraph.graph import END, START, StateGraph
 from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 from langgraph.checkpoint.postgres import PostgresSaver
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain.agents import create_agent
 from langgraph.graph.message import add_messages
 from config import (
     GROQ_API_KEY,
@@ -20,21 +24,31 @@ from citation import CitationExtractor
 from rerank import rerank
 from prompt import (
     GENERAL_SYSTEM_PROMPT,
-    MODERATION_REJECTION_MESSAGE,
     REJECTION_MESSAGE,
-    GUARDRAIL_PROMPT,
 )
 # Models
 llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0.4, max_retries=3)
-
 HISTORY_WINDOW = 12  # number of recent messages sent to the LLM
 
+
+async def get_mcp_tool() -> list:
+    """Start the news MCP server over stdio and return its tools."""
+    client = MultiServerMCPClient(
+        {
+            "news": {
+                "transport": "stdio",
+                "command": os.environ.get("PYTHON_EXECUTABLE", sys.executable),
+                "args": [os.path.join(os.path.dirname(__file__), "news_server.py")],
+            }
+        }
+    )
+    tools = await client.get_tools()
+    return tools
 
 # State
 class State(TypedDict, total=False):
     messages: Annotated[list, add_messages]
     mode: Literal["general", "document"]
-    guardrail: Literal["accept", "reject"]
     session_id: str
     rewritten_query: str
     context_docs: list
@@ -44,21 +58,27 @@ def route_by_mode(state: State) -> str:
     return "general_chat" if state["mode"] == "general" else "rewrite_query"
 
 
-def route_after_guardrail(state: State) -> str:
-    if state.get("guardrail") != "accept":
-        return "moderation_reject"
-    return route_by_mode(state)
-
-
 def check_topic(state: State) -> str:
     """Generate from retrieved context; reject only when retrieval found nothing."""
     return "generate" if state.get("context_docs") else "reject"
 
 # Nodes: general chat
-def general_chat(state: State):
+async def general_chat(state: State):
     history = state["messages"][-HISTORY_WINDOW:]
-    resp = llm_main.invoke([SystemMessage(GENERAL_SYSTEM_PROMPT), *history])
-    return {"answer": resp.content, "messages": [AIMessage(resp.content)]}
+    tools = await get_mcp_tool()
+    agent = create_agent(
+        tools=tools,
+        model=llm_main,
+        system_prompt=GENERAL_SYSTEM_PROMPT,
+    )
+
+    result = await agent.ainvoke(
+        {"messages": history},
+        config={"configurable": {"thread_id": state["session_id"]}},
+    )
+    answer = result["messages"][-1].content
+    print(answer)
+    return {"answer": answer, "messages": [AIMessage(answer)]}
 
 # Nodes: document chat
 def _format_history(messages: list) -> str:
@@ -175,26 +195,6 @@ def retrieve_and_rerank(state: State):
     print(f"Top reranker score: {float(ranked[0][1]):.4f}")
     return {"context_docs": [doc for doc, _ in ranked]}
 
-def guardrail(state: State):
-    """Check for disallowed content in the user's last message."""
-    last_message = state["messages"][-1].content
-    response = llm_main.invoke(
-        [
-            SystemMessage(
-                content=GUARDRAIL_PROMPT
-            ),
-            HumanMessage(content=last_message),
-        ]
-    )
-    decision = response.content.strip().upper()
-    return {"guardrail": "accept" if decision == "ACCEPT" else "reject"}
-
-
-def moderation_reject(state: State):
-    message = MODERATION_REJECTION_MESSAGE
-    return {"answer": message, "messages": [AIMessage(message)]}
-
-
 def generate(state: State):
     docs = state["context_docs"]
 
@@ -251,26 +251,22 @@ def reject(state: State):
 # Graph
 builder = StateGraph(State)
 
-builder.add_node("guardrail", guardrail)
 builder.add_node("general_chat", general_chat)
 builder.add_node("rewrite_query", rewrite_query)
 builder.add_node("retrieve", retrieve_and_rerank)
 builder.add_node("generate", generate)
 builder.add_node("reject", reject)
-builder.add_node("moderation_reject", moderation_reject)
 
-builder.add_edge(START, "guardrail")
 builder.add_conditional_edges(
-    "guardrail",
-    route_after_guardrail,
-    ["moderation_reject", "general_chat", "rewrite_query"],
+    START,
+    route_by_mode,
+    ["general_chat", "rewrite_query"],
 )
 builder.add_edge("rewrite_query", "retrieve")
 builder.add_conditional_edges("retrieve", check_topic, ["generate", "reject"])
 builder.add_edge("general_chat", END)
 builder.add_edge("generate", END)
 builder.add_edge("reject", END)
-builder.add_edge("moderation_reject", END)
 
 checkpointer = get_checkpointer()
 graph = builder.compile(checkpointer=checkpointer)

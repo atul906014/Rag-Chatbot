@@ -27,10 +27,10 @@ def touch(session_id: str):
     last_seen[session_id] = time.time()
 
 # Helpers
-def _run_graph(session_id: str, mode: str, message: str) -> str:
+async def _run_graph(session_id: str, mode: str, message: str) -> str:
     """Invoke the LangGraph workflow; the graph routes on `mode`."""
     touch(session_id)
-    result = graph.invoke(
+    result = await graph.ainvoke(
         {
             "messages": [HumanMessage(message)],
             "mode": mode,
@@ -156,17 +156,17 @@ def build_index(
 
 
 @app.post("/chat", response_model=ChatResponse)
-def general_chat(req: ChatRequest):
+async def general_chat(req: ChatRequest):
     """General chat: plain LLM conversation, no documents involved."""
     try:
-        answer = _run_graph(req.session_id, "general", req.message)
+        answer = await _run_graph(req.session_id, "general", req.message)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}")
     return ChatResponse(answer=answer, mode="general")
 
 
 @app.post("/docs_chat", response_model=ChatResponse)
-def docs_chat(req: ChatRequest):
+async def docs_chat(req: ChatRequest):
     """Document chat: rewrite -> retrieve -> rerank -> topic check -> answer/reject."""
     if req.session_id not in stores:
         raise HTTPException(
@@ -174,7 +174,7 @@ def docs_chat(req: ChatRequest):
             detail="No documents indexed for this session. Upload files via /build_index first.",
         )
     try:
-        answer = _run_graph(req.session_id, "document", req.message)
+        answer = await _run_graph(req.session_id, "document", req.message)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Document chat failed: {exc}")
     return ChatResponse(answer=answer, mode="document")

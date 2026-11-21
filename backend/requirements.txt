@@ -31,3 +31,9 @@ python-dotenv>=1.0
 psycopg[binary]==3.3.4
 psycopg_pool==3.3.1
 langgraph-checkpoint-postgres==3.1.0
+
+
+#tools
+mcp==1.30.0
+tavily==1.1.0
+langchain-mcp-adapters==0.3.2
