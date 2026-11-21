@@ -76,6 +76,14 @@ button { cursor: pointer; }
 .msg { max-width: 78%; line-height: 1.6; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), var(--accent2)); padding: 11px 16px; border-radius: 18px 18px 4px 18px; }
 .msg.assistant { align-self: flex-start; background: var(--surface); border: 1.5px solid color-mix(in srgb, var(--accent) 45%, var(--line)); padding: 16px 18px; border-radius: 18px; box-shadow: var(--shadow); white-space: normal; }
+.tool-approval { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.tool-approval ul { display: grid; gap: 8px; margin: 0; padding-left: 20px; }
+.tool-approval li { display: grid; gap: 4px; }
+.tool-approval code { overflow-wrap: anywhere; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+.tool-approval-actions { display: flex; gap: 8px; }
+.tool-approval-actions button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-weight: 600; }
+.tool-approval-actions button:first-child { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.tool-approval-actions button:disabled { cursor: wait; opacity: .6; }
 .answer-content { color: var(--ink); line-height: 1.75; overflow-wrap: anywhere; }
 .answer-content p { margin: 0 0 12px; }
 .answer-content p:last-child { margin-bottom: 0; }

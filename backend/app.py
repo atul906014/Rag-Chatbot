@@ -5,13 +5,19 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import List
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from typing import Any, List
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
-from graph import clear_thread
+from graph import (
+    InvalidToolApprovalError,
+    PendingToolApprovalError,
+    clear_thread,
+    get_pending_tool_approval,
+    resolve_tool_approval,
+)
 from config import CORS_ORIGINS, SESSION_IDLE_TTL
 from graph import graph
 from ingest import clear_session, ingest, last_seen, stores, touch
@@ -27,18 +33,28 @@ def touch(session_id: str):
     last_seen[session_id] = time.time()
 
 # Helpers
-async def _run_graph(session_id: str, mode: str, message: str) -> str:
+async def _run_graph(session_id: str, mode: str, message: str) -> dict:
     """Invoke the LangGraph workflow; the graph routes on `mode`."""
     touch(session_id)
+    graph_config = {"configurable": {"thread_id": f"{session_id}:{mode}"}}
+    if mode == "general":
+        current_state = await graph.aget_state(graph_config)
+        if current_state.values.get("approval_id") and current_state.values.get("tool_calls"):
+            raise PendingToolApprovalError("Approve or deny the pending tool call before sending another message.")
+
+    approval_id = uuid.uuid4().hex if mode == "general" else None
     result = await graph.ainvoke(
         {
             "messages": [HumanMessage(message)],
             "mode": mode,
             "session_id": session_id,
+            "answer": None,
+            "approval_id": approval_id,
+            "tool_calls": None,
         },
-        config={"configurable": {"thread_id": f"{session_id}:{mode}"}},
+        config=graph_config,
     )
-    return result["answer"]
+    return result
 
 
 
@@ -49,6 +65,7 @@ def _end_session(session_id: str):
         (clear_session, session_id),
         (clear_thread, f"{session_id}:general"),
         (clear_thread, f"{session_id}:document"),
+        (clear_thread, f"{session_id}:general_agent"),
     ):
         try:
             cleanup(arg)
@@ -89,8 +106,16 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    answer: str
+    answer: str | None = None
     mode: str
+    approval_id: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+
+
+class ToolApprovalRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    approval_id: str = Field(..., min_length=1)
+    approved: bool
 
 
 class PingRequest(BaseModel):
@@ -159,10 +184,37 @@ def build_index(
 async def general_chat(req: ChatRequest):
     """General chat: plain LLM conversation, no documents involved."""
     try:
-        answer = await _run_graph(req.session_id, "general", req.message)
+        result = await _run_graph(req.session_id, "general", req.message)
+    except PendingToolApprovalError as exc:
+        pending = await get_pending_tool_approval(req.session_id)
+        if pending is None:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return ChatResponse(
+            mode="general",
+            approval_id=pending["approval_id"],
+            tool_calls=pending["tool_calls"],
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}")
-    return ChatResponse(answer=answer, mode="general")
+    return ChatResponse(
+        answer=result.get("answer"),
+        mode="general",
+        approval_id=result.get("approval_id"),
+        tool_calls=result.get("tool_calls"),
+    )
+
+
+@app.get("/chat/pending-approval", response_model=ChatResponse)
+async def pending_tool_approval(session_id: str = Query(..., min_length=1)):
+    """Restore a pending tool approval when the chat UI reconnects."""
+    pending = await get_pending_tool_approval(session_id)
+    if pending is None:
+        return ChatResponse(mode="general")
+    return ChatResponse(
+        mode="general",
+        approval_id=pending["approval_id"],
+        tool_calls=pending["tool_calls"],
+    )
 
 
 @app.post("/docs_chat", response_model=ChatResponse)
@@ -174,10 +226,26 @@ async def docs_chat(req: ChatRequest):
             detail="No documents indexed for this session. Upload files via /build_index first.",
         )
     try:
-        answer = await _run_graph(req.session_id, "document", req.message)
+        result = await _run_graph(req.session_id, "document", req.message)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Document chat failed: {exc}")
-    return ChatResponse(answer=answer, mode="document")
+    return ChatResponse(answer=result["answer"], mode="document")
+
+
+@app.post("/chat/tool-approval", response_model=ChatResponse)
+async def tool_approval(req: ToolApprovalRequest):
+    """Approve or decline a pending general-chat tool call."""
+    try:
+        answer = await resolve_tool_approval(
+            req.session_id,
+            req.approval_id,
+            req.approved,
+        )
+    except InvalidToolApprovalError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Tool approval failed: {exc}")
+    return ChatResponse(answer=answer, mode="general")
 
 
 @app.post("/session/ping")

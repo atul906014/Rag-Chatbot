@@ -11,6 +11,7 @@ const state = {
   files: [],
   busy: false,
   uploading: false,
+  pendingApproval: null,
   history: { general: [], document: [] }, // the backend keeps a separate memory per mode
 };
 
@@ -131,6 +132,42 @@ function buildMessage(m) {
     div.append(document.createTextNode(text));
   }
 
+  if (m.approval) {
+    const approval = document.createElement("section");
+    approval.className = "tool-approval";
+    const heading = document.createElement("strong");
+    heading.textContent = m.approval.resolved
+      ? (m.approval.approved ? "Tool call approved" : "Tool call declined")
+      : "Allow the assistant to use these tools?";
+    approval.append(heading);
+
+    const calls = document.createElement("ul");
+    m.approval.toolCalls.forEach((call) => {
+      const item = document.createElement("li");
+      const name = document.createElement("strong");
+      name.textContent = call.name;
+      const args = document.createElement("code");
+      args.textContent = JSON.stringify(call.args, null, 2);
+      item.append(name, args);
+      calls.append(item);
+    });
+    approval.append(calls);
+
+    if (!m.approval.resolved) {
+      const actions = document.createElement("div");
+      actions.className = "tool-approval-actions";
+      [["Approve", true], ["Deny", false]].forEach(([label, approved]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", () => respondToToolApproval(m, approved));
+        actions.append(button);
+      });
+      approval.append(actions);
+    }
+    div.append(approval);
+  }
+
   if (citationGroups.length) {
     const panel = document.createElement("section");
     panel.className = "citation-panel";
@@ -226,8 +263,8 @@ function scrollDown() {
   el.messages.scrollTop = el.messages.scrollHeight;
 }
 
-function addMessage(mode, role, text, error = false) {
-  const m = { role, text, error };
+function addMessage(mode, role, text, error = false, approval = null) {
+  const m = { role, text, error, approval };
   state.history[mode].push(m);
   if (mode !== state.mode) return;
   el.messages.querySelector(".empty")?.remove();
@@ -251,12 +288,15 @@ function updateUI() {
   el.switch.dataset.mode = state.mode;
   el.switch.querySelectorAll("button").forEach((b) =>
     b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode)));
+  el.switch.querySelectorAll("button").forEach((b) => {
+    b.disabled = Boolean(state.pendingApproval);
+  });
   el.title.textContent = c.title;
   el.hint.textContent = c.hint;
 
   const locked = state.mode === "document" && !state.files.length;
-  el.input.disabled = locked || state.busy;
-  el.send.disabled = locked || state.busy;
+  el.input.disabled = locked || state.busy || Boolean(state.pendingApproval);
+  el.send.disabled = locked || state.busy || Boolean(state.pendingApproval);
   el.input.placeholder = locked ? "Add a document first" : c.placeholder;
 
   el.clear.hidden = !state.files.length;
@@ -297,6 +337,38 @@ function networkText(e) {
   return e instanceof TypeError
     ? "Can’t reach the server. Check that the backend is running."
     : e.message;
+}
+
+function showPendingApproval(data) {
+  if (!data.approval_id || state.pendingApproval) return;
+  if (state.mode !== "general") setMode("general");
+  const approval = {
+    approvalId: data.approval_id,
+    toolCalls: data.tool_calls || [],
+    resolved: false,
+  };
+  state.pendingApproval = approval;
+  addMessage(
+    "general",
+    "assistant",
+    "A tool call is waiting for your approval:",
+    false,
+    approval,
+  );
+  updateUI();
+}
+
+async function restorePendingApproval() {
+  try {
+    const res = await fetch(
+      `${API_URL}/chat/pending-approval?session_id=${encodeURIComponent(sid)}`,
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(errText(data));
+    showPendingApproval(data);
+  } catch (e) {
+    addMessage("general", "notice", networkText(e), true);
+  }
 }
 
 /* ---------- Upload ---------- */
@@ -353,8 +425,24 @@ async function send(text) {
       body: JSON.stringify({ session_id: sid, message: text }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(errText(data));
-    addMessage(mode, "assistant", data.answer);
+    if (!res.ok) {
+      if (res.status === 409) {
+        const pendingRes = await fetch(
+          `${API_URL}/chat/pending-approval?session_id=${encodeURIComponent(sid)}`,
+        );
+        const pendingData = await pendingRes.json().catch(() => ({}));
+        if (pendingRes.ok && pendingData.approval_id) {
+          showPendingApproval(pendingData);
+          return;
+        }
+      }
+      throw new Error(errText(data));
+    }
+    if (data.approval_id) {
+      showPendingApproval(data);
+    } else {
+      addMessage(mode, "assistant", data.answer);
+    }
   } catch (e) {
     addMessage(mode, "notice", networkText(e), true);
   } finally {
@@ -362,6 +450,38 @@ async function send(text) {
     state.busy = false;
     updateUI();
     el.input.focus();
+  }
+}
+
+async function respondToToolApproval(message, approved) {
+  if (state.busy || !state.pendingApproval) return;
+  state.busy = true;
+  updateUI();
+  const typing = showTyping();
+
+  try {
+    const res = await fetch(`${API_URL}/chat/tool-approval`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sid,
+        approval_id: message.approval.approvalId,
+        approved,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(errText(data));
+    message.approval.resolved = true;
+    message.approval.approved = approved;
+    state.pendingApproval = null;
+    render();
+    addMessage("general", "assistant", data.answer);
+  } catch (e) {
+    addMessage("general", "notice", networkText(e), true);
+  } finally {
+    typing.remove();
+    state.busy = false;
+    updateUI();
   }
 }
 
@@ -433,3 +553,4 @@ $("#attachBtn").addEventListener("click", () => el.fileInput.click());
 
 updateUI();
 render();
+restorePendingApproval();

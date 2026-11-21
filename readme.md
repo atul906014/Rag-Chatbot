@@ -86,9 +86,13 @@ The `.env` file must define `GROQ_API_KEY`. The embedding and reranking models a
 | `/health` | GET | Health check |
 | `/build_index` | POST | Upload and index one or more files (`session_id` and `files` form fields) |
 | `/chat` | POST | General chat (`session_id` and `message` JSON fields) |
+| `/chat/pending-approval?session_id=...` | GET | Restore a pending tool approval for the session |
+| `/chat/tool-approval` | POST | Approve or deny proposed general-chat tool calls (`session_id`, `approval_id`, and `approved` JSON fields) |
 | `/docs_chat` | POST | Chat with the session's indexed documents |
 | `/session/ping` | POST | Keep a session active |
 | `/session/end` | POST | Clear session indexes and conversation state |
+
+When general chat proposes using an MCP tool, `/chat` returns an `approval_id` and the proposed `tool_calls` without executing them. Submit both with `approved: true` or `false` to `/chat/tool-approval`.
 
 ## Notes
 

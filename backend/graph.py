@@ -52,7 +52,9 @@ class State(TypedDict, total=False):
     session_id: str
     rewritten_query: str
     context_docs: list
-    answer: str
+    answer: str | None
+    approval_id: str | None
+    tool_calls: list[dict] | None
 # Routing
 def route_by_mode(state: State) -> str:
     return "general_chat" if state["mode"] == "general" else "rewrite_query"
@@ -70,15 +72,105 @@ async def general_chat(state: State):
         tools=tools,
         model=llm_main,
         system_prompt=GENERAL_SYSTEM_PROMPT,
+        checkpointer=checkpointer,
+        interrupt_before=["tools"],
     )
 
-    result = await agent.ainvoke(
-        {"messages": history},
-        config={"configurable": {"thread_id": state["session_id"]}},
-    )
+    agent_config = {"configurable": {"thread_id": _agent_thread_id(state["session_id"])}}
+    existing_state = agent.get_state(agent_config)
+    if "tools" in existing_state.next:
+        raise PendingToolApprovalError("A tool call is already waiting for approval.")
+    if existing_state.values:
+        clear_thread(_agent_thread_id(state["session_id"]))
+
+    result = await agent.ainvoke({"messages": history}, config=agent_config)
+    paused_state = agent.get_state(agent_config)
+    if "tools" in paused_state.next:
+        pending_message = paused_state.values["messages"][-1]
+        return {
+            "answer": None,
+            "approval_id": state["approval_id"],
+            "tool_calls": [
+                {"id": call["id"], "name": call["name"], "args": call["args"]}
+                for call in pending_message.tool_calls
+            ],
+        }
+
     answer = result["messages"][-1].content
     print(answer)
-    return {"answer": answer, "messages": [AIMessage(answer)]}
+    clear_thread(_agent_thread_id(state["session_id"]))
+    return {
+        "answer": answer,
+        "approval_id": None,
+        "tool_calls": None,
+        "messages": [AIMessage(answer)],
+    }
+
+
+class PendingToolApprovalError(Exception):
+    """Raised when a new chat turn arrives while a tool call awaits approval."""
+
+
+class InvalidToolApprovalError(Exception):
+    """Raised when no matching tool approval is pending."""
+
+
+async def get_pending_tool_approval(session_id: str) -> dict | None:
+    """Return a pending general-chat approval, if one exists."""
+    snapshot = await graph.aget_state(
+        {"configurable": {"thread_id": f"{session_id}:general"}}
+    )
+    values = snapshot.values or {}
+    approval_id = values.get("approval_id")
+    tool_calls = values.get("tool_calls")
+    if not approval_id or not tool_calls:
+        return None
+    return {"approval_id": approval_id, "tool_calls": tool_calls}
+
+
+def _agent_thread_id(session_id: str) -> str:
+    return f"{session_id}:general_agent"
+
+
+async def resolve_tool_approval(
+    session_id: str, approval_id: str, approved: bool
+) -> str:
+    tools = await get_mcp_tool()
+    agent = create_agent(
+        tools=tools,
+        model=llm_main,
+        system_prompt=GENERAL_SYSTEM_PROMPT,
+        checkpointer=checkpointer,
+        interrupt_before=["tools"],
+    )
+    agent_config = {"configurable": {"thread_id": _agent_thread_id(session_id)}}
+    paused_state = agent.get_state(agent_config)
+    if "tools" not in paused_state.next:
+        raise InvalidToolApprovalError("There is no tool call waiting for approval.")
+
+    conversation_config = {"configurable": {"thread_id": f"{session_id}:general"}}
+    conversation_state = await graph.aget_state(conversation_config)
+    if conversation_state.values.get("approval_id") != approval_id:
+        raise InvalidToolApprovalError("This tool approval request is no longer active.")
+
+    if approved:
+        result = await agent.ainvoke(None, config=agent_config)
+        answer = result["messages"][-1].content
+    else:
+        answer = "I didn't call the tool. You can ask me to answer without it."
+
+    clear_thread(_agent_thread_id(session_id))
+    await graph.aupdate_state(
+        conversation_config,
+        {
+            "answer": answer,
+            "approval_id": None,
+            "tool_calls": None,
+            "messages": [AIMessage(answer)],
+        },
+        as_node="general_chat",
+    )
+    return answer
 
 # Nodes: document chat
 def _format_history(messages: list) -> str:
