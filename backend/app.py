@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="Dual-Mode RAG Chatbot", lifespan=lifespan)
+app = FastAPI(title="RAG Chatbot", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
