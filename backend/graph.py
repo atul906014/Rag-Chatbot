@@ -28,6 +28,13 @@ from prompt import (
 )
 # Models
 llm_main = ChatGroq(model=GROQ_MAIN_MODEL, api_key=GROQ_API_KEY, temperature=0.4, max_retries=3)
+# llm_foundry=ChatOpenAI(
+#     model="gpt-5",
+#     base_url=os.getenv("PROJECT_ENDPOINT"),
+#     api_key=os.getenv("API_KEY"),
+#     temperature=0.4,
+#     max_retries=3,
+# )
 HISTORY_WINDOW = 12  # number of recent messages sent to the LLM
 
 
